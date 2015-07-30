@@ -72,16 +72,16 @@ roles.forEach(function(role, r_i) {
           headers: {'user-agent': 'node.js'}
       };
 
-      found_on_github = false;
-
       https.get(options, function(res){
-        res.on('data', function(d) {
-          if (res.statusCode == 200) {
-            found_on_github = true;
-          }
-        });
+        res.on('data', function(){});
         res.on('end', function(){
-          all_names[n] = found_on_github ? n : "";
+          if (res.statusCode == 200) {
+            all_names[n] = n;
+          }
+          else { 
+            all_names[n] = ""; 
+          }
+
           if (n_i+1 == names[role]["names_only"].length && r_i+1 == roles.length) {
             eventEmitter.emit("doneGH");
           }
