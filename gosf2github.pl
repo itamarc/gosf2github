@@ -1,6 +1,7 @@
 #!/usr/bin/perl -w
 use strict;
 use JSON;
+use POSIX qw(strftime);
 
 my $json = new JSON;
 
@@ -8,7 +9,7 @@ my $GITHUB_TOKEN;
 my $REPO;
 my $dry_run=0;
 my @collabs = ();
-my $default_assignee = 'cmungall';
+my $default_assignee = 'TEITechnicalCouncil';
 my $usermap = {};
 my $sf_base_url = "https://sourceforge.net/p/";
 my $sf_tracker = "";  ## e.g. obo/mouse-anatomy-requests
@@ -71,17 +72,24 @@ foreach my $ticket (@tickets) {
 
     my $custom = $ticket->{custom_fields} || {};
     my $milestone = $custom->{_milestone};
+    my $colrs = get_colors($custom->{_milestone});
 
     my @labels = (@default_labels,  @{$ticket->{labels}});
 
-    push(@labels, "sourceforge", "auto-migrated", map_priority($custom->{_priority}));
+    push(@labels, "sf-automigrated", map_priority($custom->{_priority}));
+    if (defined $colrs) {
+        push(@labels, $colrs);
+    }
     if ($milestone) {
         push(@labels, $milestone);
     }
 
-    my $assignee = map_user($ticket->{assigned_to});
-    if (!$assignee || !$collabh{$assignee}) {
+    my $sf_assignee = $ticket->{assigned_to};
+    my $gh_assignee = map_user($sf_assignee);
+    my $assignee = $gh_assignee;
+    if ($sf_assignee && !$collabh{$assignee}) {
         #die "$assignee is not a collaborator";
+        push(@labels, "sf_assignee-".$sf_assignee);
         $assignee = $default_assignee;
     }
 
@@ -137,11 +145,13 @@ foreach my $ticket (@tickets) {
         "title" => $ticket->{summary},
         "body" => $body,
         "created_at" => cvt_time($ticket->{created_date}),    ## check
-        "assignee" => $assignee,
         #"milestone" => 1,  # todo
         "closed" => $ticket->{status} =~ /closed/ ? JSON::true : JSON::false ,
         "labels" => \@labels,
     };
+    if (defined $assignee){
+        $issue->{ 'assignee' } = $assignee;        
+    }
     my @comments = ();
     foreach my $post (@{$ticket->{discussion_thread}->{posts}}) {
         my $comment =
@@ -150,6 +160,21 @@ foreach my $ticket (@tickets) {
             "body" => $post->{text}."\n\nOriginal comment by: ".map_user($post->{author}),
         };
         push(@comments, $comment);
+    }
+    # Additional assigment comment:
+    
+    if (defined $assignee) {
+        my $datestring = strftime "%Y-%m-%dT%H:%M:%SZ", gmtime;
+        my $gh_user = "";
+        if ($gh_assignee !~ /^sf_user_/) {
+            $gh_user = "\n Current user is: ".$gh_assignee
+        }
+        my $assignment_comment =
+        {
+            "created_at" => $datestring,
+            "body" => "Originally assigned to SF user: ".$sf_assignee.$gh_user
+        };
+        push(@comments, $assignment_comment);
     }
 
     my $req = {
@@ -161,6 +186,9 @@ foreach my $ticket (@tickets) {
     my $jsfile = 'foo.json';
     open(F,">$jsfile") || die $jsfile;
     print F $str;
+    if ($dry_run) {
+        print $str;
+    }    
     close(F);
 
     #  https://gist.github.com/jonmagic/5282384165e0f86ef105
@@ -176,11 +204,39 @@ foreach my $ticket (@tickets) {
         print `$command`;
     }
     #die;
-    sleep(3);
+    sleep(1);
 }
 
 
 exit 0;
+
+sub expand_labels {
+    my @labels = shift;
+    my @full_labels = ();
+
+    foreach my $label (@labels){
+        my $color = "";
+        if ($label eq "GREEN") {
+            $color = "#33CC33";
+        }
+        elsif ($label eq "RED") {
+            $color = "#FF3300";
+        }
+        elsif ($label eq "AMBER") {
+            $color = "#FFCC66";
+        }
+        else {
+            $color = "#EDEDED"
+        }
+        my $full_label = 
+        {
+            "name" => $label,
+            "color" => $color,
+        };
+        push @full_labels, $full_label;
+    }   
+    return \@full_labels;
+}
 
 sub parse_json_file {
     my $f = shift;
@@ -206,6 +262,8 @@ sub cvt_time {
 # customize this?
 sub map_priority {
     my $pr = shift;
+    # attempt to fix priority if non-numeric
+    $pr =~ s/^(\d+)[^\d"]+/$1/;
     if (!$pr || $pr eq "5") {
         return ();
     }
@@ -215,6 +273,11 @@ sub map_priority {
     if ($pr > 5) {
         return ("high priority");
     }
+}
+
+sub get_colors {
+    my $col = shift;
+    return $col
 }
 
 sub scriptname {
