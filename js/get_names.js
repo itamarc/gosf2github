@@ -79,7 +79,7 @@ roles.forEach(function(role, r_i) {
             all_names[n] = n;
           }
           else { 
-            all_names[n] = ""; 
+            all_names[n] = "sf_user_"+n; 
           }
 
           if (n_i+1 == names[role]["names_only"].length && r_i+1 == roles.length) {
