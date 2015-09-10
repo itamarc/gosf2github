@@ -88,15 +88,20 @@ foreach my $ticket (@tickets) {
     my $gh_assignee = map_user($sf_assignee);
     my $assignee = $gh_assignee;
     if ($sf_assignee && !$collabh{$assignee}) {
-        #die "$assignee is not a collaborator";
-        push(@labels, "sf_assignee-".$sf_assignee);
         $assignee = $default_assignee;
+    }
+
+    my $sf_creator = $ticket->{reported_by};
+    my $gh_creator = map_user($sf_creator);
+    my $creator = $gh_creator;
+    if ($sf_creator && !$collabh{$creator}) {
+        #die "$assignee is not a collaborator";
+        push(@labels, "sf_creator-".$sf_creator);
     }
 
     my $body = $ticket->{description};
 
-    # fix SF-specific markdown
-    $body =~ s/\~\~\~\~/```/g;
+    $body = fix_formatting($body);
 
     if ($genpurls) {
         my @lines = split(/\n/,$body);
@@ -154,10 +159,11 @@ foreach my $ticket (@tickets) {
     }
     my @comments = ();
     foreach my $post (@{$ticket->{discussion_thread}->{posts}}) {
+        my $cbody = fix_formatting($post->{text});
         my $comment =
         {
             "created_at" => cvt_time($post->{timestamp}),
-            "body" => $post->{text}."\n\nOriginal comment by: ".map_user($post->{author}),
+            "body" => $cbody."\n\nOriginal comment by: ".map_user($post->{author}),
         };
         push(@comments, $comment);
     }
@@ -172,9 +178,9 @@ foreach my $ticket (@tickets) {
         my $assignment_comment =
         {
             "created_at" => $datestring,
-            "body" => "Originally assigned to SF user: ".$sf_assignee.$gh_user
+            "body" => "This issue was originally assigned to SF user: ".$sf_assignee.$gh_user
         };
-        push(@comments, $assignment_comment);
+        unshift(@comments, $assignment_comment);
     }
 
     my $req = {
@@ -196,7 +202,7 @@ foreach my $ticket (@tickets) {
     #my $ACCEPT = "application/vnd.github.v3+json";   # https://developer.github.com/v3/
 
     my $command = "curl -X POST -H \"Authorization: token $GITHUB_TOKEN\" -H \"Accept: $ACCEPT\" -d \@$jsfile https://api.github.com/repos/$REPO/import/issues\n";
-    print $command;
+    # print $command;
     if ($dry_run) {
         print "DRY RUN: not executing\n";
     }
@@ -278,6 +284,19 @@ sub map_priority {
 sub get_colors {
     my $col = shift;
     return $col
+}
+
+sub fix_formatting {
+    my $text = shift;
+    # code blocks
+    $text =~ s/\~{4.}/```/g;
+    # escape @ as code 
+    # remove unnecessary \\s
+    $text =~ s/\\\\//g;
+    # (lookbehind assertion is there to avoid escaping email addresses)
+    $text =~ s/(?<!\w{2})(@\w+)/`$1`/g;
+
+    return $text;
 }
 
 sub scriptname {
