@@ -255,6 +255,11 @@ sub parse_json_file {
 sub map_user {
     my $u = shift;
     my $ghu = $usermap->{$u} if $u;
+    if (defined $ghu) {
+        if ($ghu !~ /^sf_user/){
+            $ghu = "@".$ghu;
+        }
+    }
     return $ghu || $u;
 }
 
