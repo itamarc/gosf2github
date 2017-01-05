@@ -93,7 +93,9 @@ foreach my $ticket (@tickets) {
 
     my @labels = (@default_labels,  @{$ticket->{labels}});
 
-    push(@labels, "sourceforge", "auto-migrated", map_priority($custom->{_priority}));
+    push(@labels, "sourceforge", "auto-migrated",
+                  map_priority($custom->{_priority}),
+                  $ticket->{status});
     if ($milestone) {
         push(@labels, $milestone);
     }
@@ -147,7 +149,7 @@ foreach my $ticket (@tickets) {
         "created_at" => cvt_time($ticket->{created_date}),    ## check
         "assignee" => $assignee,
         #"milestone" => 1,  # todo
-        "closed" => $ticket->{status} =~ /closed/ ? JSON::true : JSON::false ,
+        "closed" => $ticket->{status} =~ /(?:closed|fixed|wont-fix)/ ? JSON::true : JSON::false ,
         "labels" => \@labels,
     };
     my @comments = ();
@@ -315,6 +317,8 @@ NOTES:
 
  * uses a pre-release API documented here: https://gist.github.com/jonmagic/5282384165e0f86ef105
  * milestones are converted to labels
+ * status closed*, fixed, and wont-fix are mapped to closed, all others to status open
+ * (sourceforge) ticket status is added as a label
  * all issues and comments will appear to have originated from the user who issues the OAth ticket
  * NEVER RUN TWO PROCESSES OF THIS SCRIPT IN THE SAME DIRECTORY - see notes on json hack below
 
