@@ -92,13 +92,14 @@ foreach my $ticket (@tickets) {
     my $milestone = $custom->{_milestone};
 
     my @labels = (@default_labels,  @{$ticket->{labels}});
+    my $ts = ($ticket->{status} =~ m/wont-fix/ ? 'wontfix' : $ticket->{status});
 
     push(@labels, "sourceforge", "auto-migrated",
-                  map_priority($custom->{_priority}),
-                  $ticket->{status});
+                  map_priority($custom->{_priority}), $ts);
     if ($milestone) {
         push(@labels, $milestone);
     }
+    @labels = map {lc} @labels;
 
     my $assignee = map_user($ticket->{assigned_to});
     if (!$assignee || !$collabh{$assignee}) {
