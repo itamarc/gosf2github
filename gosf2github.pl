@@ -300,7 +300,7 @@ ARGUMENTS:
 
    -l | --label  LABEL
                  Add this label to all tickets, in addition to defaults and auto-added.
-                 Currently the following labels are ALWAYS added: auto-migrated, a priority label (unless priority=5), a label for every SF label, a label for the milestone
+                 Currently the following labels are ALWAYS added: sourceforge, auto-migrated, a priority label (unless priority=5), a label for every SF label, a label for the milestone
 
    -u | --usermap USERMAP-JSON-FILE *RECOMMENDED*
                   Maps SF usernames to GH
