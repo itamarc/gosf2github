@@ -13,7 +13,7 @@ my $default_assignee;
 my $usermap = {};
 my $sf_base_url = "https://sourceforge.net/p/";
 my $sf_tracker = "";  ## e.g. obo/mouse-anatomy-requests
-my @default_labels = ();
+my @default_labels = ('sourceforge', 'auto-migrated');
 my $genpurls;
 my $start_from = 1;
 while ($ARGV[0] =~ /^\-/) {
@@ -93,7 +93,7 @@ foreach my $ticket (@tickets) {
 
     my @labels = (@default_labels,  @{$ticket->{labels}});
 
-    push(@labels, "sourceforge", "auto-migrated", map_priority($custom->{_priority}));
+    push(@labels, map_priority($custom->{_priority}));
     if ($milestone) {
         push(@labels, $milestone);
     }
