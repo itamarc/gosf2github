@@ -163,7 +163,7 @@ foreach my $ticket (@tickets) {
         "created_at" => cvt_time($ticket->{created_date}),    ## check
         "assignee" => $assignee,
         #"milestone" => 1,  # todo
-        "closed" => $ticket->{status} =~ /(Fixed|Done|WontFix|Verified|Duplicate|Invalid)/ ? JSON::true : JSON::false ,
+        "closed" => $ticket->{status} =~ /(Closed|Fixed|Done|WontFix|Verified|Duplicate|Invalid)/i ? JSON::true : JSON::false ,
         "labels" => \@labels,
     };
     my @comments = ();
