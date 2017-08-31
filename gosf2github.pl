@@ -212,6 +212,22 @@ foreach my $ticket (@tickets) {
                 exit(1);
             }
         }
+
+        # Verify ticket was properly created. If not, stop importing.
+        sleep(2);
+        my $command = "curl -s -f -o /dev/null -H \"Authorization: token $GITHUB_TOKEN\" -H \"Accept: $ACCEPT\" https://api.github.com/repos/$REPO/issues/$num\n";
+        print $command;
+        $err = system($command);
+        if (($? >> 8) == 22) {
+            sleep(2);
+            $err = system($command);
+            if (($? >> 8) == 22) {
+                print STDERR "$err\n";
+                print STDERR "Ticket not created. Stopping\n";
+                exit 1;
+            }
+        }
+
     }
     #die;
     sleep($sleeptime);
