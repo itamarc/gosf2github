@@ -1,6 +1,7 @@
 #!/usr/bin/perl -w
 use strict;
 use JSON;
+use DateTime::Format::Strptime qw/strptime strftime/;
 
 my $json = new JSON;
 
@@ -12,6 +13,7 @@ my @ghmilestones = ();
 my $sleeptime = 3;
 my $default_assignee;
 my $usermap = {};
+my $only_milestones = 0;
 my $sf_base_url = "https://sourceforge.net/p/";
 my $sf_tracker = "";  ## e.g. obo/mouse-anatomy-requests
 my @default_labels = ('sourceforge', 'auto-migrated');
@@ -47,6 +49,9 @@ while ($ARGV[0] =~ /^\-/) {
     elsif ($opt eq '-k' || $opt eq '--dry-run') {
         $dry_run = 1;
     }
+    elsif ($opt eq '-M' || $opt eq '--only-milestones') {
+        $only_milestones = 1;
+    }
     elsif ($opt eq '--generate-purls') {
         # if you are not part of the OBO Library project, you can safely ignore this option;
         # It will replace IDs of form FOO:nnnnn with PURLs
@@ -67,10 +72,6 @@ while ($ARGV[0] =~ /^\-/) {
 }
 print STDERR "TICKET JSON: @ARGV\n";
 
-if (!$default_assignee) {
-    die("You must specify a default assignee using the -a option");
-}
-
 my %collabh = ();
 foreach (@collabs) {
     $collabh{$_->{login}} = $_;
@@ -81,6 +82,11 @@ my $obj = $json->decode( $blob );
 
 my @tickets = @{$obj->{tickets}};
 my @milestones = @{$obj->{milestones}};
+
+if ($only_milestones) {
+    import_milestones();
+    exit 0;
+}
 
 my %ghmilestones = ();
 foreach (@ghmilestones) {
@@ -94,6 +100,10 @@ foreach (@ghmilestones) {
 @tickets = sort {
     $a->{ticket_num} <=> $b->{ticket_num}
 } @tickets;
+
+if (!$default_assignee) {
+    die("You must specify a default assignee using the -a option");
+}
 
 foreach my $ticket (@tickets) {
     
@@ -252,6 +262,56 @@ foreach my $ticket (@tickets) {
 
 exit 0;
 
+sub import_milestones {
+
+    foreach(@milestones) {
+        my $milestone = {
+            "title" => $_->{name},
+            "state" => $_->{complete} ? 'closed' : 'open',
+            "description" => $_->{description},
+        };
+
+        # Add due_date if defined
+        if ($_->{due_date}) {
+            my $dt = strptime("%m/%d/%Y", $_->{due_date});
+            $milestone->{due_on} = strftime("%FT%TZ", $dt);
+        }
+
+        my $str = $json->utf8->encode($milestone);
+        my $jsfile = 'foo.json';
+        open(F,">$jsfile") || die $jsfile;
+        print F $str;
+        close(F);
+
+        my $ACCEPT = "application/vnd.github.v3+json";   # https://developer.github.com/v3/
+        my $command = "curl -X POST -H \"Authorization: token $GITHUB_TOKEN\" -H \"Accept: $ACCEPT\" -d \@$jsfile https://api.github.com/repos/$REPO/milestones\n";
+        print $command;
+        if ($dry_run) {
+            print "DRY RUN: not executing\n";
+            print "$str\n";
+        }
+        else {
+            # yes, I'm really doing this via a shell call to curl, and not
+            # LWP or similar, I prefer it this way
+            my $err = system($command);
+            if ($err) {
+                print STDERR "FAILED: $command\n";
+                print STDERR "Retrying once...\n";
+                # HARDCODE ALERT: do a single retry
+                sleep($sleeptime * 5);
+                $err = system($command);
+                if ($err) {
+                    print STDERR "FAILED: $command\n";
+                    exit(1);
+                }
+            }
+        }
+        #die;
+        sleep($sleeptime);
+    }
+
+}
+
 sub parse_json_file {
     my $f = shift;
     open(F,$f) || die $f;
@@ -292,7 +352,7 @@ sub usage {
     my $sn = scriptname();
 
     <<EOM;
-$sn [-h] [-u USERMAP] [-m MILESTONES] [-c COLLABINFO] [-r REPO] [-t OAUTH_TOKEN] [-a USERNAME] [-l LABEL]* [-s SF_TRACKER] [--dry-run] TICKETS-JSON-FILE
+$sn [-h] [-u USERMAP] [-m MILESTONES] [-c COLLABINFO] [-r REPO] [-t OAUTH_TOKEN] [-a USERNAME] [-l LABEL]* [-s SF_TRACKER] [--dry-run] [--only-milestones] TICKETS-JSON-FILE
 
 Migrates tickets from sourceforge to github, using new v3 GH API, documented here: https://gist.github.com/jonmagic/5282384165e0f86ef105
 
@@ -351,6 +411,10 @@ ARGUMENTS:
    -s | --sf-tracker  NAME
                  E.g. obo/mouse-anatomy-requests
                  If specified, will append the original URL to the body of the new issue. E.g. https://sourceforge.net/p/obo/mouse-anatomy-requests/90
+
+   -M | --only-milestones
+                 Only import milestones defined in data exported from SF, from TICKETS-JSON-FILE.
+                 Useful to run this script first, with this flag to populate GitHub milestones and use them really imported SF tickets.
 
    --generate-purls
                  OBO Ontologies only: converts each ID of the form `FOO:nnnnnnn` into a PURL.
