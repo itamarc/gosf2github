@@ -195,6 +195,7 @@ foreach my $ticket (@tickets) {
     print $command;
     if ($dry_run) {
         print "DRY RUN: not executing\n";
+        print "$str\n";
     }
     else {
         # yes, I'm really doing this via a shell call to curl, and not
