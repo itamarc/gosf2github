@@ -1,4 +1,4 @@
-#!/usr/bin/env perl -w
+#!/usr/bin/perl -w
 use strict;
 use JSON;
 
@@ -84,6 +84,10 @@ my @milestones = @{$obj->{milestones}};
 
 foreach my $ticket (@tickets) {
     
+	if (scalar %$ticket eq 2) {
+	  my $extticket = parse_json_file("$ticket->{ticket_num}.json");
+	  $ticket = $extticket->{ticket};
+	}
     my $custom = $ticket->{custom_fields} || {};
     my $milestone = $custom->{_milestone};
 
@@ -96,7 +100,7 @@ foreach my $ticket (@tickets) {
 
     my $assignee = map_user($ticket->{assigned_to});
     if ($assignee && !$collabh{$assignee}) {
-        die "$assignee is not a collaborator";
+        print "$assignee is not a collaborator";
     }
     if (!$assignee) {
         $assignee = $default_assignee;
@@ -181,7 +185,6 @@ foreach my $ticket (@tickets) {
         comments => \@comments
     };
     my $str = $json->utf8->encode( $req );
-    #print $str,"\n";
     my $jsfile = 'foo.json';
     open(F,">$jsfile") || die $jsfile;
     print F $str;
@@ -195,6 +198,7 @@ foreach my $ticket (@tickets) {
     print $command;
     if ($dry_run) {
         print "DRY RUN: not executing\n";
+		print $str,"\n";
     }
     else {
         # yes, I'm really doing this via a shell call to curl, and not
