@@ -101,12 +101,12 @@ foreach (@ghmilestones) {
     $a->{ticket_num} <=> $b->{ticket_num}
 } @tickets;
 
-if (!$default_assignee) {
-    die("You must specify a default assignee using the -a option");
-}
-
 foreach my $ticket (@tickets) {
     
+	if (scalar %$ticket eq 2) {
+	  my $extticket = parse_json_file("$ticket->{ticket_num}.json");
+	  $ticket = $extticket->{ticket};
+	}
     my $custom = $ticket->{custom_fields} || {};
     my $milestone = $custom->{_milestone};
 
@@ -115,8 +115,10 @@ foreach my $ticket (@tickets) {
     push(@labels, map_priority($custom->{_priority}));
 
     my $assignee = map_user($ticket->{assigned_to});
-    if (!$assignee || !$collabh{$assignee}) {
-        #die "$assignee is not a collaborator";
+    if ($assignee && !$collabh{$assignee}) {
+        print "$assignee is not a collaborator";
+    }
+    if (!$assignee) {
         $assignee = $default_assignee;
     }
 
@@ -178,7 +180,7 @@ foreach my $ticket (@tickets) {
         "body" => $body,
         "created_at" => cvt_time($ticket->{created_date}),    ## check
         "assignee" => $assignee,
-        "closed" => $ticket->{status} =~ /(Closed|Fixed|Done|WontFix|Verified|Duplicate|Invalid)/i ? JSON::true : JSON::false ,
+        "closed" => $ticket->{status} =~ /(Closed.*|Fixed|Done|Wont.*Fix|Verified|Duplicate|Invalid)/i ? JSON::true : JSON::false ,
         "labels" => \@labels,
     };
 
@@ -206,7 +208,6 @@ foreach my $ticket (@tickets) {
         comments => \@comments
     };
     my $str = $json->utf8->encode( $req );
-    #print $str,"\n";
     my $jsfile = 'foo.json';
     open(F,">$jsfile") || die $jsfile;
     print F $str;
@@ -220,7 +221,7 @@ foreach my $ticket (@tickets) {
     print $command;
     if ($dry_run) {
         print "DRY RUN: not executing\n";
-        print "$str\n";
+		print $str,"\n";
     }
     else {
         # yes, I'm really doing this via a shell call to curl, and not
@@ -382,9 +383,10 @@ ARGUMENTS:
                  Note that all tickets and issues will appear to originate from the user that generates the token.
                  Important: make sure the token has the public_repo scope.
 
-   -l | --label  LABEL
-                 Add this label to all tickets, in addition to defaults and auto-added.
-                 Currently the following labels are ALWAYS added: auto-migrated, a priority label (unless priority=5), a label for every SF label, a label for the milestone
+   -c | --collaborators COLLAB-JSON-FILE *REQUIRED*
+                  Required, as it is impossible to assign to a non-collaborator
+                  Generate like this:
+                  curl -H "Authorization: token TOKEN" https://api.github.com/repos/cmungall/sf-test/collaborators > sf-test-collab.json
 
    -u | --usermap USERMAP-JSON-FILE *RECOMMENDED*
                   Maps SF usernames to GH
@@ -395,13 +397,12 @@ ARGUMENTS:
                  Generate like this:
                  curl -H "Authorization: token TOKEN" https://api.github.com/repos/cmungall/sf-test/milestones?state=all > milestones.json
 
-   -a | --assignee  USERNAME *REQUIRED*
+   -a | --assignee  USERNAME *RECOMMENDED*
                  Default username to assign tickets to if there is no mapping for the original SF assignee in usermap
 
-   -c | --collaborators COLLAB-JSON-FILE *REQUIRED*
-                  Required, as it is impossible to assign to a non-collaborator
-                  Generate like this:
-                  curl -H "Authorization: token TOKEN" https://api.github.com/repos/cmungall/sf-test/collaborators > sf-test-collab.json
+   -l | --label  LABEL
+                 Add this label to all tickets, in addition to defaults and auto-added.
+                 Currently the following labels are ALWAYS added: auto-migrated, a priority label (unless priority=5), a label for every SF label, a label for the milestone
 
    -i | --initial-ticket  NUMBER
                  Start the import from (sourceforge) ticket number NUM. This can be useful for resuming a previously stopped or failed import.
@@ -425,6 +426,11 @@ NOTES:
  * uses a pre-release API documented here: https://gist.github.com/jonmagic/5282384165e0f86ef105
  * milestones are converted to labels
  * all issues and comments will appear to have originated from the user who issues the OAth ticket
+ * confirm your rate limit for "core" before you start to ensure you have sufficient requests
+   remaining to import your number of tickets. The script makes no effort to do this for you.
+
+   curl -H "Authorization: token TOKEN" https://api.github.com/rate_limit
+
  * NEVER RUN TWO PROCESSES OF THIS SCRIPT IN THE SAME DIRECTORY - see notes on json hack below
 
 HOW IT WORKS:
@@ -453,6 +459,8 @@ ticket and comments.
 Create an account for an agent like https://github.com/bbopjenkins -
 use this account to generate the token. This may be better than having
 everything show up under your own personal account
+
+The account requires admin privileges for the repository.
 
 CREDITS:
 
