@@ -5,6 +5,7 @@ use DateTime::Format::Strptime qw/strptime strftime/;
 
 my $json = new JSON;
 
+my $CURL_OPTIONS = $ENV{CURL_OPTIONS};
 my $GITHUB_TOKEN;
 my $REPO;
 my $dry_run=0;
@@ -101,10 +102,6 @@ foreach (@ghmilestones) {
     $a->{ticket_num} <=> $b->{ticket_num}
 } @tickets;
 
-if (!$default_assignee) {
-    die("You must specify a default assignee using the -a option");
-}
-
 foreach my $ticket (@tickets) {
     
     my $custom = $ticket->{custom_fields} || {};
@@ -130,9 +127,20 @@ foreach my $ticket (@tickets) {
 	push(@labels, $type);
     }
 
-    my $assignee = map_user($ticket->{assigned_to});
-    if ($assignee && !$collabh{$assignee}) {
-        die "$assignee is not a collaborator";
+    my $assignee = '';
+    my $assignee_name = '';
+    if ($ticket->{assigned_to}) {
+	if (!mappable_user($ticket->{assigned_to})) {
+	    # user at SourceForge
+	    $assignee_name = map_user($ticket->{assigned_to});
+	} else {
+	    $assignee = map_user($ticket->{assigned_to});
+	    if ($assignee && !$collabh{$assignee}) {
+		print STDERR "WARNING: $assignee is not a collaborator\n";
+		$assignee_name = $assignee;
+		$assignee = '';
+	    }
+	}
     }
     if (!$assignee) {
         $assignee = $default_assignee;
@@ -160,8 +168,11 @@ foreach my $ticket (@tickets) {
     $created_date =~ s/\s.*//g;
 
     # it is tempting to prefix with '@' but this may generate spam and get the bot banned
-    #$body .= "\n\nOriginal comment by: \@".map_user($ticket->{reported_by});
+    #$body .= "\n\nReported by: \@".map_user($ticket->{reported_by});
     $body .= "\n\nReported by: ".map_user($ticket->{reported_by});
+    if ($assignee_name) {
+	$body .= "\nOriginally assigned to: ".$assignee_name;
+    }
 
     my $num = $ticket->{ticket_num};
     printf "Ticket: ticket_num: %d of %d total (last ticket_num=%d)\n", $num, scalar(@tickets), $tickets[-1]->{ticket_num};
@@ -325,13 +336,22 @@ sub parse_json_file {
     return $json->decode($blob);
 }
 
+sub mappable_user {
+    my $u = shift;
+    return $u && $usermap->{$u};
+}
+
 sub map_user {
     my $u = shift;
-    my $ghu = $u ? $usermap->{$u} : $u;
-    if ($ghu && $ghu eq 'nobody') {
-        $ghu = $u;
+    if ($u) {
+	my $ghu = $usermap->{$u};
+	if ($ghu) {
+	    return $ghu;
+	} else {
+	    return $u . ' at SourceForge'
+	}
     }
-    return $ghu || $u;
+    return '';
 }
 
 sub cvt_time {
