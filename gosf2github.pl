@@ -12,6 +12,7 @@ my $dry_run=0;
 my @collabs = ();
 my @ghmilestones = ();
 my $sleeptime = 3;
+my $maxwaittime = 30;
 my $default_assignee;
 my $usermap = {};
 my $only_milestones = 0;
@@ -40,6 +41,9 @@ while ($ARGV[0] =~ /^\-/) {
     }
     elsif ($opt eq '-d' || $opt eq '--delay') {
         $sleeptime = shift @ARGV;
+    }
+    elsif ($opt eq '--max-wait-time') {
+        $maxwaittime = shift @ARGV;
     }
     elsif ($opt eq '-i' || $opt eq '--initial-ticket') {
         $start_from = shift @ARGV;
@@ -257,19 +261,24 @@ foreach my $ticket (@tickets) {
 
         # Verify ticket was properly created. If not, stop importing.
         sleep(2);
+	my $waittime = 0;
         my $command = "curl ${CURL_OPTIONS} -s -f -o /dev/null -H \"Authorization: token $GITHUB_TOKEN\" -H \"Accept: $ACCEPT\" https://api.github.com/repos/$REPO/issues/$num\n";
         print $command;
-        $err = system($command);
-        if (($? >> 8) == 22) {
-            sleep(2);
-            $err = system($command);
-            if (($? >> 8) == 22) {
-                print STDERR "$err\n";
-                print STDERR "Ticket not created. Stopping\n";
-                exit 1;
-            }
-        }
-
+	for (;;) {
+	    $err = system($command);
+	    if (($? >> 8) == 22) {
+		if ($waittime > $maxwaittime) {
+		    print STDERR "$err\n";
+		    print STDERR "Ticket not created. Stopping\n";
+		    exit 1;
+		}
+		sleep(2);
+		$waittime += 2;
+		print "retry: " . $command;
+		next;
+	    }
+	    last;
+	}
     }
     #die;
     sleep($sleeptime);
