@@ -109,10 +109,24 @@ foreach my $ticket (@tickets) {
     
     my $custom = $ticket->{custom_fields} || {};
     my $milestone = $custom->{_milestone};
+    my $resolution = $custom->{_resolution};
+    my $type = $custom->{_type};
 
     my @labels = (@default_labels,  @{$ticket->{labels}});
 
     push(@labels, map_priority($custom->{_priority}));
+
+    if ($resolution =~ /(duplicate|invalid|wontfix)/) {
+	push(@labels, $resolution);
+    } elsif ($resolution eq 'worksforme') {
+	push(@labels, 'invalid');
+    }
+
+    if ($type eq 'defect') {
+	push(@labels, 'bug');
+    } elsif ($type ne '') {
+	push(@labels, $type);
+    }
 
     my $assignee = map_user($ticket->{assigned_to});
     if ($assignee && !$collabh{$assignee}) {
