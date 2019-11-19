@@ -221,7 +221,7 @@ foreach my $ticket (@tickets) {
     my $ACCEPT = "application/vnd.github.golden-comet-preview+json";
     #my $ACCEPT = "application/vnd.github.v3+json";   # https://developer.github.com/v3/
 
-    my $command = "curl -X POST -H \"Authorization: token $GITHUB_TOKEN\" -H \"Accept: $ACCEPT\" -d \@$jsfile https://api.github.com/repos/$REPO/import/issues\n";
+    my $command = "curl -f -X POST -H \"Authorization: token $GITHUB_TOKEN\" -H \"Accept: $ACCEPT\" -d \@$jsfile https://api.github.com/repos/$REPO/import/issues\n";
     print $command;
     if ($dry_run) {
         print "DRY RUN: not executing\n";
@@ -289,7 +289,7 @@ sub import_milestones {
         close(F);
 
         my $ACCEPT = "application/vnd.github.v3+json";   # https://developer.github.com/v3/
-        my $command = "curl -X POST -H \"Authorization: token $GITHUB_TOKEN\" -H \"Accept: $ACCEPT\" -d \@$jsfile https://api.github.com/repos/$REPO/milestones\n";
+        my $command = "curl -f -X POST -H \"Authorization: token $GITHUB_TOKEN\" -H \"Accept: $ACCEPT\" -d \@$jsfile https://api.github.com/repos/$REPO/milestones\n";
         print $command;
         if ($dry_run) {
             print "DRY RUN: not executing\n";
