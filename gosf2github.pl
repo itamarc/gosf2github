@@ -116,10 +116,12 @@ foreach my $ticket (@tickets) {
 
     push(@labels, map_priority($custom->{_priority}));
 
-    if ($resolution =~ /(duplicate|invalid|wontfix)/) {
-	push(@labels, $resolution);
+    if ($resolution eq '' || $resolution eq 'fixed') {
+	# ignore
     } elsif ($resolution eq 'worksforme') {
 	push(@labels, 'invalid');
+    } else {
+	push(@labels, $resolution);
     }
 
     if ($type eq 'defect') {
