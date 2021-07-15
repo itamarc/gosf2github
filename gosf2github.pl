@@ -88,11 +88,14 @@ foreach my $ticket (@tickets) {
     my $milestone = $custom->{_milestone};
 
     my @labels = (@default_labels,  @{$ticket->{labels}});
+    my $ts = ($ticket->{status} =~ m/wont-fix/ ? 'wontfix' : $ticket->{status});
 
-    push(@labels, "sourceforge", "auto-migrated", map_priority($custom->{_priority}));
+    push(@labels, "sourceforge", "auto-migrated",
+                  map_priority($custom->{_priority}), $ts);
     if ($milestone) {
         push(@labels, $milestone);
     }
+    @labels = map {lc} @labels;
 
     my $assignee = map_user($ticket->{assigned_to});
     if ($assignee && !$collabh{$assignee}) {
@@ -123,16 +126,6 @@ foreach my $ticket (@tickets) {
     $created_date =~ s/\-//g;
     $created_date =~ s/\s.*//g;
 
-    my $is_markdown = 1;
-    ##  Issues and comments with the creation date before April 20
-    ##  2009 at 19:00:00 (UTC) will get parsed and rendered using
-    ##  Textile, which is what GitHub used by default before Markdown
-
-    # Good enough, tough luck if you're after 7pm on the 20th
-    if ($created_date < 20090421) {
-        $is_markdown = 0;
-    }
-
     # it is tempting to prefix with '@' but this may generate spam and get the bot banned
     #$body .= "\n\nOriginal comment by: \@".map_user($ticket->{reported_by});
     $body .= "\n\nReported by: ".map_user($ticket->{reported_by});
@@ -145,13 +138,7 @@ foreach my $ticket (@tickets) {
     }
     if ($sf_tracker) {
         my $turl = "$sf_base_url$sf_tracker/$num";
-        if ($is_markdown) {
-            $body .= "\n\nOriginal Ticket: [$sf_tracker/$num]($turl)";
-        }
-        else {
-            # Textile
-            $body .= "\n\nOriginal Ticket: \"$sf_tracker/$num\":$turl";
-        }
+        $body .= "\n\nOriginal Ticket: [$sf_tracker/$num]($turl)";
     }
 
     my $issue =
@@ -304,7 +291,8 @@ ARGUMENTS:
 
    -l | --label  LABEL
                  Add this label to all tickets, in addition to defaults and auto-added.
-                 Currently the following labels are ALWAYS added: auto-migrated, a priority label (unless priority=5), a label for every SF label, a label for the milestone
+                 Currently the following labels are ALWAYS added: sourceforge, auto-migrated, a priority label (unless priority=5),
+                 a label for every SF label, a label for the milestone
 
    -i | --initial-ticket  NUMBER
                  Start the import from (sourceforge) ticket number NUM. This can be useful for resuming a previously stopped or failed import.
@@ -323,6 +311,8 @@ NOTES:
 
  * uses a pre-release API documented here: https://gist.github.com/jonmagic/5282384165e0f86ef105
  * milestones are converted to labels
+ * status closed*, fixed, and wont-fix are mapped to closed, all others to status open
+ * (sourceforge) ticket status is added as a label
  * all issues and comments will appear to have originated from the user who issues the OAth ticket
  * confirm your rate limit for "core" before you start to ensure you have sufficient requests
    remaining to import your number of tickets. The script makes no effort to do this for you.
