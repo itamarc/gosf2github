@@ -1,6 +1,7 @@
 #!/usr/bin/env perl -w
 use strict;
 use JSON;
+use POSIX qw(strftime);
 
 my $json = new JSON;
 
@@ -86,10 +87,14 @@ foreach my $ticket (@tickets) {
     
     my $custom = $ticket->{custom_fields} || {};
     my $milestone = $custom->{_milestone};
+    my $colrs = get_colors($custom->{_milestone});
 
     my @labels = (@default_labels,  @{$ticket->{labels}});
 
-    push(@labels, "sourceforge", "auto-migrated", map_priority($custom->{_priority}));
+    push(@labels, "sf-automigrated", map_priority($custom->{_priority}));
+    if (defined $colrs) {
+        push(@labels, $colrs);
+    }
     if ($milestone) {
         push(@labels, $milestone);
     }
@@ -102,10 +107,17 @@ foreach my $ticket (@tickets) {
         $assignee = $default_assignee;
     }
 
+    my $sf_creator = $ticket->{reported_by};
+    my $gh_creator = map_user($sf_creator);
+    my $creator = $gh_creator;
+    if ($sf_creator && !$collabh{$creator}) {
+        #die "$assignee is not a collaborator";
+        push(@labels, "sf_creator-".$sf_creator);
+    }
+
     my $body = $ticket->{description};
 
-    # fix SF-specific markdown
-    $body =~ s/\~\~\~\~/```/g;
+    $body = fix_formatting($body);
 
     if ($genpurls) {
         my @lines = split(/\n/,$body);
@@ -168,12 +180,28 @@ foreach my $ticket (@tickets) {
     }
     my @comments = ();
     foreach my $post (@{$ticket->{discussion_thread}->{posts}}) {
+        my $cbody = fix_formatting($post->{text});
         my $comment =
         {
             "created_at" => cvt_time($post->{timestamp}),
-            "body" => $post->{text}."\n\nOriginal comment by: ".map_user($post->{author}),
+            "body" => $cbody."\n\nOriginal comment by: ".map_user($post->{author}),
         };
         push(@comments, $comment);
+    }
+    # Additional assigment comment:
+    
+    if (defined $assignee) {
+        my $datestring = strftime "%Y-%m-%dT%H:%M:%SZ", gmtime;
+        my $gh_user = "";
+        if ($gh_assignee !~ /^sf_user_/) {
+            $gh_user = "\n Current user is: ".$gh_assignee
+        }
+        my $assignment_comment =
+        {
+            "created_at" => $datestring,
+            "body" => "This issue was originally assigned to SF user: ".$sf_assignee.$gh_user
+        };
+        unshift(@comments, $assignment_comment);
     }
 
     my $req = {
@@ -185,6 +213,9 @@ foreach my $ticket (@tickets) {
     my $jsfile = 'foo.json';
     open(F,">$jsfile") || die $jsfile;
     print F $str;
+    if ($dry_run) {
+        print $str;
+    }    
     close(F);
 
     #  https://gist.github.com/jonmagic/5282384165e0f86ef105
@@ -192,7 +223,7 @@ foreach my $ticket (@tickets) {
     #my $ACCEPT = "application/vnd.github.v3+json";   # https://developer.github.com/v3/
 
     my $command = "curl -X POST -H \"Authorization: token $GITHUB_TOKEN\" -H \"Accept: $ACCEPT\" -d \@$jsfile https://api.github.com/repos/$REPO/import/issues\n";
-    print $command;
+    # print $command;
     if ($dry_run) {
         print "DRY RUN: not executing\n";
     }
@@ -220,6 +251,34 @@ foreach my $ticket (@tickets) {
 
 exit 0;
 
+sub expand_labels {
+    my @labels = shift;
+    my @full_labels = ();
+
+    foreach my $label (@labels){
+        my $color = "";
+        if ($label eq "GREEN") {
+            $color = "#33CC33";
+        }
+        elsif ($label eq "RED") {
+            $color = "#FF3300";
+        }
+        elsif ($label eq "AMBER") {
+            $color = "#FFCC66";
+        }
+        else {
+            $color = "#EDEDED"
+        }
+        my $full_label = 
+        {
+            "name" => $label,
+            "color" => $color,
+        };
+        push @full_labels, $full_label;
+    }   
+    return \@full_labels;
+}
+
 sub parse_json_file {
     my $f = shift;
     open(F,$f) || die $f;
@@ -231,8 +290,10 @@ sub parse_json_file {
 sub map_user {
     my $u = shift;
     my $ghu = $u ? $usermap->{$u} : $u;
-    if ($ghu && $ghu eq 'nobody') {
-        $ghu = $u;
+    if (defined $ghu) {
+        if ($ghu !~ /^sf_user/){
+            $ghu = "@".$ghu;
+        }
     }
     return $ghu || $u;
 }
@@ -247,7 +308,35 @@ sub cvt_time {
 # customize this?
 sub map_priority {
     my $pr = shift;
-    return ();
+    # attempt to fix priority if non-numeric
+    $pr =~ s/^(\d+)[^\d"]+/$1/;
+    if (!$pr || $pr eq "5") {
+        return ();
+    }
+    if ($pr < 5) {
+        return ("low priority");
+    }
+    if ($pr > 5) {
+        return ("high priority");
+    }
+}
+
+sub get_colors {
+    my $col = shift;
+    return $col
+}
+
+sub fix_formatting {
+    my $text = shift;
+    # code blocks
+    $text =~ s/\~{4.}/```/g;
+    # escape @ as code 
+    # remove unnecessary \\s
+    $text =~ s/\\\\//g;
+    # (lookbehind assertion is there to avoid escaping email addresses)
+    $text =~ s/(?<!\w{2})(@\w+)/`$1`/g;
+
+    return $text;
 }
 
 sub scriptname {

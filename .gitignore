@@ -1,0 +1,4 @@
+js/data/*
+
+!js/data/bugs.json
+!js/data/feature-requests.json
