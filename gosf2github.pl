@@ -5,12 +5,14 @@ use DateTime::Format::Strptime qw/strptime strftime/;
 
 my $json = new JSON;
 
+my $CURL_OPTIONS = $ENV{CURL_OPTIONS};
 my $GITHUB_TOKEN;
 my $REPO;
 my $dry_run=0;
 my @collabs = ();
 my @ghmilestones = ();
 my $sleeptime = 3;
+my $maxwaittime = 30;
 my $default_assignee;
 my $usermap = {};
 my $only_milestones = 0;
@@ -39,6 +41,9 @@ while ($ARGV[0] =~ /^\-/) {
     }
     elsif ($opt eq '-d' || $opt eq '--delay') {
         $sleeptime = shift @ARGV;
+    }
+    elsif ($opt eq '--max-wait-time') {
+        $maxwaittime = shift @ARGV;
     }
     elsif ($opt eq '-i' || $opt eq '--initial-ticket') {
         $start_from = shift @ARGV;
@@ -101,22 +106,45 @@ foreach (@ghmilestones) {
     $a->{ticket_num} <=> $b->{ticket_num}
 } @tickets;
 
-if (!$default_assignee) {
-    die("You must specify a default assignee using the -a option");
-}
-
 foreach my $ticket (@tickets) {
     
     my $custom = $ticket->{custom_fields} || {};
     my $milestone = $custom->{_milestone};
+    my $resolution = $custom->{_resolution};
+    my $type = $custom->{_type};
 
     my @labels = (@default_labels,  @{$ticket->{labels}});
 
     push(@labels, map_priority($custom->{_priority}));
 
-    my $assignee = map_user($ticket->{assigned_to});
-    if ($assignee && !$collabh{$assignee}) {
-        die "$assignee is not a collaborator";
+    if ($resolution eq '' || $resolution eq 'fixed') {
+	# ignore
+    } elsif ($resolution eq 'worksforme') {
+    	push(@labels, 'invalid');
+    } else {
+    	push(@labels, $resolution);
+    }
+
+    if ($type eq 'defect') {
+	    push(@labels, 'bug');
+    } elsif ($type ne '') {
+	    push(@labels, $type);
+    }
+
+    my $assignee = '';
+    my $assignee_name = '';
+    if ($ticket->{assigned_to}) {
+        if (!mappable_user($ticket->{assigned_to})) {
+            # user at SourceForge
+            $assignee_name = map_user($ticket->{assigned_to});
+        } else {
+            $assignee = map_user($ticket->{assigned_to});
+            if ($assignee && !$collabh{$assignee}) {
+            print STDERR "WARNING: $assignee is not a collaborator\n";
+            $assignee_name = $assignee;
+            $assignee = '';
+            }
+        }
     }
     if (!$assignee) {
         $assignee = $default_assignee;
@@ -143,19 +171,12 @@ foreach my $ticket (@tickets) {
     $created_date =~ s/\-//g;
     $created_date =~ s/\s.*//g;
 
-    my $is_markdown = 1;
-    ##  Issues and comments with the creation date before April 20
-    ##  2009 at 19:00:00 (UTC) will get parsed and rendered using
-    ##  Textile, which is what GitHub used by default before Markdown
-
-    # Good enough, tough luck if you're after 7pm on the 20th
-    if ($created_date < 20090421) {
-        $is_markdown = 0;
-    }
-
     # it is tempting to prefix with '@' but this may generate spam and get the bot banned
-    #$body .= "\n\nOriginal comment by: \@".map_user($ticket->{reported_by});
+    #$body .= "\n\nReported by: \@".map_user($ticket->{reported_by});
     $body .= "\n\nReported by: ".map_user($ticket->{reported_by});
+    if ($assignee_name) {
+	    $body .= "\nOriginally assigned to: ".$assignee_name;
+    }
 
     my $num = $ticket->{ticket_num};
     printf "Ticket: ticket_num: %d of %d total (last ticket_num=%d)\n", $num, scalar(@tickets), $tickets[-1]->{ticket_num};
@@ -165,13 +186,7 @@ foreach my $ticket (@tickets) {
     }
     if ($sf_tracker) {
         my $turl = "$sf_base_url$sf_tracker/$num";
-        if ($is_markdown) {
-            $body .= "\n\nOriginal Ticket: [$sf_tracker/$num]($turl)";
-        }
-        else {
-            # Textile
-            $body .= "\n\nOriginal Ticket: \"$sf_tracker/$num\":$turl";
-        }
+        $body .= "\n\nOriginal Ticket: [$sf_tracker/$num]($turl)";
     }
 
     my $issue =
@@ -179,10 +194,13 @@ foreach my $ticket (@tickets) {
         "title" => $ticket->{summary},
         "body" => $body,
         "created_at" => cvt_time($ticket->{created_date}),    ## check
-        "assignee" => $assignee,
-        "closed" => $ticket->{status} =~ /(Closed|Fixed|Done|WontFix|Verified|Duplicate|Invalid)/i ? JSON::true : JSON::false ,
+        "closed" => $ticket->{status} =~ /([Cc]losed.*|[Ff]ixed|[Dd]one|[Ww]ont.*[Ff]ix|[Vv]erified|[Dd]uplicate|[Ii]nvalid)/ ? JSON::true : JSON::false ,
         "labels" => \@labels,
     };
+
+    if ($assignee) {
+        $issue->{assignee} = $assignee;
+    }
 
     # Declare milestone if possible
     if ($ghmilestones{$milestone}) {
@@ -218,7 +236,7 @@ foreach my $ticket (@tickets) {
     my $ACCEPT = "application/vnd.github.golden-comet-preview+json";
     #my $ACCEPT = "application/vnd.github.v3+json";   # https://developer.github.com/v3/
 
-    my $command = "curl -X POST -H \"Authorization: token $GITHUB_TOKEN\" -H \"Accept: $ACCEPT\" -d \@$jsfile https://api.github.com/repos/$REPO/import/issues\n";
+    my $command = "curl ${CURL_OPTIONS} -f -X POST -H \"Authorization: token $GITHUB_TOKEN\" -H \"Accept: $ACCEPT\" -d \@$jsfile https://api.github.com/repos/$REPO/import/issues\n";
     print $command;
     if ($dry_run) {
         print "DRY RUN: not executing\n";
@@ -243,19 +261,24 @@ foreach my $ticket (@tickets) {
 
         # Verify ticket was properly created. If not, stop importing.
         sleep(2);
-        my $command = "curl -s -f -o /dev/null -H \"Authorization: token $GITHUB_TOKEN\" -H \"Accept: $ACCEPT\" https://api.github.com/repos/$REPO/issues/$num\n";
-        print $command;
-        $err = system($command);
-        if (($? >> 8) == 22) {
-            sleep(2);
+        my $waittime = 0;
+            my $command = "curl ${CURL_OPTIONS} -s -f -o /dev/null -H \"Authorization: token $GITHUB_TOKEN\" -H \"Accept: $ACCEPT\" https://api.github.com/repos/$REPO/issues/$num\n";
+            print $command;
+        for (;;) {
             $err = system($command);
             if (($? >> 8) == 22) {
-                print STDERR "$err\n";
-                print STDERR "Ticket not created. Stopping\n";
-                exit 1;
+                if ($waittime > $maxwaittime) {
+                    print STDERR "$err\n";
+                    print STDERR "Ticket not created. Stopping\n";
+                    exit 1;
+                }
+                sleep(2);
+                $waittime += 2;
+                print "retry: " . $command;
+                next;
             }
+            last;
         }
-
     }
     #die;
     sleep($sleeptime);
@@ -286,7 +309,7 @@ sub import_milestones {
         close(F);
 
         my $ACCEPT = "application/vnd.github.v3+json";   # https://developer.github.com/v3/
-        my $command = "curl -X POST -H \"Authorization: token $GITHUB_TOKEN\" -H \"Accept: $ACCEPT\" -d \@$jsfile https://api.github.com/repos/$REPO/milestones\n";
+        my $command = "curl ${CURL_OPTIONS} -f -X POST -H \"Authorization: token $GITHUB_TOKEN\" -H \"Accept: $ACCEPT\" -d \@$jsfile https://api.github.com/repos/$REPO/milestones\n";
         print $command;
         if ($dry_run) {
             print "DRY RUN: not executing\n";
@@ -322,13 +345,22 @@ sub parse_json_file {
     return $json->decode($blob);
 }
 
+sub mappable_user {
+    my $u = shift;
+    return $u && $usermap->{$u};
+}
+
 sub map_user {
     my $u = shift;
-    my $ghu = $u ? $usermap->{$u} : $u;
-    if ($ghu && $ghu eq 'nobody') {
-        $ghu = $u;
+    if ($u) {
+	my $ghu = $usermap->{$u};
+	if ($ghu) {
+	    return $ghu;
+	} else {
+	    return $u . ' at SourceForge'
+	}
     }
-    return $ghu || $u;
+    return '';
 }
 
 sub cvt_time {
