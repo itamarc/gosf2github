@@ -110,7 +110,7 @@ foreach my $ticket (@tickets) {
     my $custom = $ticket->{custom_fields} || {};
     my $milestone = $custom->{_milestone};
 
-    my @labels = (@default_labels,  @{$ticket->{labels}});
+    my @labels = (@default_labels,  @{map_labels($ticket->{labels})});
 
     push(@labels, map_priority($custom->{_priority}));
 
@@ -262,6 +262,23 @@ foreach my $ticket (@tickets) {
 
 
 exit 0;
+
+sub map_labels {
+    my $labels = shift;
+    my @ghlabels = ();
+    foreach my $label (@{$labels}) {
+        if ($label eq "feature") {
+            push(@ghlabels, "enhancement");
+        } elsif ($label eq "doc") {
+            push(@ghlabels, "documentation");
+        } elsif ($label eq "fix") {
+            push(@ghlabels, "bug");
+        } else {
+            push(@ghlabels, $label);
+        }
+    }
+    return \@ghlabels;
+}        
 
 sub import_milestones {
 
